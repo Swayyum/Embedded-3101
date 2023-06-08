@@ -1,0 +1,27 @@
+
+**** Build of configuration Release for project blinky_uart5 ****
+
+"C:\\ti\\ccs1210\\ccs\\utils\\bin\\gmake" -k all 
+ 
+Building target: "blinky_uart5.out"
+Invoking: ARM Linker
+"C:/ti/ccs1210/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armcl" -mv7M4 --code_state=16 --float_support=FPv4SPD16 --abi=eabi -me -O2 --advice:power=all --gcc --define=ccs="ccs" --define=PART_TM4C123GH6PM --define=TARGET_IS_TM4C123_RB1 --diag_warning=225 --diag_wrap=off --display_error_number --gen_func_subsections=on --ual -z -m"blinky_ccs.map" --stack_size=512 --heap_size=0 -i"C:/ti/ccs1210/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/lib" -i"C:/ti/ccs1210/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/include" --reread_libs --diag_wrap=off --display_error_number --warn_sections --xml_link_info="blinky_uart5_linkInfo.xml" --rom_model -o "blinky_uart5.out" "./blinky.obj" "./tm4c123gh6pm_startup_ccs.obj" "../blinky_ccs.cmd"  -llibc.a -l"C:/ti/tivaware_c_series_2_1_4_178/driverlib/ccs/Debug/driverlib.lib" 
+<Linking>
+ 
+ undefined       first referenced              
+  symbol             in file                   
+ ---------       ----------------              
+ Systick_handler ./tm4c123gh6pm_startup_ccs.obj
+ uart0_handler   ./tm4c123gh6pm_startup_ccs.obj
+ uart5_handler   ./tm4c123gh6pm_startup_ccs.obj
+ 
+error #10234-D: unresolved symbols remain
+remark #10371-D: (ULP 1.1) Detected no uses of low power mode state changing instructions
+error #10010: errors encountered during linking; "blinky_uart5.out" not built
+ 
+>> Compilation failure
+makefile:142: recipe for target 'blinky_uart5.out' failed
+gmake: *** [blinky_uart5.out] Error 1
+gmake: Target 'all' not remade because of errors.
+
+**** Build Finished ****

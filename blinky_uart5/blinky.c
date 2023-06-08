@@ -1,0 +1,173 @@
+// 2023/04/19 - UART5 with TivaWare and Interrupts
+#include <stdint.h>
+#include <stdbool.h>
+#include "inc/hw_memmap.h" // needed for definition of UART5_BASE
+#include "inc/hw_ints.h" // needed for INT_UART5
+#include "inc/hw_types.h"
+#include "driverlib/pin_map.h" // needed for GPIO_PA0_U0RX and GPIO_PA1_U0TX
+// these are needed for the various TivaWare calls below
+#include "driverlib/fpu.h"
+#include "driverlib/sysctl.h"
+#include "driverlib/interrupt.h"
+#include "driverlib/gpio.h"
+#include "driverlib/uart.h"
+// these are libraries for the temps
+#include <stdlib.h>
+#include <stdio.h>
+#include "driverlib/systick.h"
+
+
+
+
+#define NVIC_SYS_PRI3_R (*((volatile uint32_t *)0xE000ED20))  // address of the NVIC_SYS_PRI3 register
+
+unsigned int currTime = 0;
+char tBuffer[32];
+
+unsigned char temps[] = {0, 0, 0, 0, 0, 0, 0, 0};
+unsigned char tempsIndex = 0;
+
+struct nvic_st_s{
+    volatile unsigned long ctrl;
+    volatile unsigned long reload;
+    volatile unsigned long current;
+};
+
+// returns a random temperature between 20-80 (that represents the current temperature)
+unsigned char currTemp(){
+    srand(currTime);
+    return (rand() % 81) + 20;
+}
+
+void addTemp(unsigned char temp){
+    temps[tempsIndex] = temp;
+    tempsIndex++;
+    tempsIndex %= 8;
+}
+
+unsigned char getTempAvg(){
+    unsigned char avgTemp = 0;
+    char i;
+    for(i = 0; i < 8; ++i){
+        if(temps[i]) avgTemp += temps[i];
+    }
+    return avgTemp / 8;
+}
+
+void uart_puts(uint32_t uart, char *cp){
+    uint32_t UART_BASE = UART0_BASE + (uart << 12);
+    while( *cp!='\0' ){
+        UARTCharPut(UART_BASE,*cp++);
+    }
+}
+
+void uart7_handler(void){
+
+//    // DEBUG: Send a single character immediately to UART0
+//    unsigned char test[] = "~";
+//    UARTCharPutNonBlocking(UART0_BASE, test[0]);
+
+    uint32_t status;
+    char cc;
+
+    // Read the interrupt status and clear the interrupt flag
+    status = UARTIntStatus(UART7_BASE, true);
+    UARTIntClear(UART7_BASE, status);
+
+    // Loop through all available characters in the UART7 receive FIFO
+    while(UARTCharsAvail(UART7_BASE)){
+        // Read a single character from the FIFO and send it to UART0
+        cc = UARTCharGet(UART7_BASE);
+        UARTCharPutNonBlocking(UART0_BASE, cc);
+    }
+
+}
+
+void SysTick_Handler(void){
+    currTime += 1;
+    char buffer[3];
+    sprintf(buffer, "%d", currTemp());
+    uart_puts(5, buffer);
+}
+
+int main(void){
+
+    FPUEnable();
+    FPULazyStackingEnable();
+
+    // Enable systick:
+    // set the clock to 20 MHz
+    SysCtlClockSet(SYSCTL_SYSDIV_10 | SYSCTL_USE_PLL | SYSCTL_OSC_MAIN | SYSCTL_XTAL_16MHZ);
+
+    struct nvic_st_s *systick = (struct nvic_st_s *)0xE000E010;
+
+    NVIC_SYS_PRI3_R = (NVIC_SYS_PRI3_R & 0x00FFFFFF) | 0x30000000;
+
+    SysTickIntRegister(SysTick_Handler); // registers SysTick_Handler for interrupt
+
+    systick->ctrl = (0x1 | 0x2); // enable systick, systick interrupt, and set the alternate clock source, which is the CPU freq/4
+    systick->reload = 4999999; // set systick period to be 1 second, given that the CPU freq is 20 MHz, and the alternate clock is 5 MHz
+    systick->current = 0; // clear systick counter when initializing
+
+    // enable clock to UART 0, then enable port A for UART 0
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
+
+    // enable clock to UART 5 and 7, enable port E for UART 5 and 7
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_UART5);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_UART7);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
+
+    // configure pins for the UARTs:
+    // UART 0
+    GPIOPinConfigure(GPIO_PA0_U0RX);
+    GPIOPinConfigure(GPIO_PA1_U0TX);
+    GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0 | GPIO_PIN_1);
+    // UART 5
+    GPIOPinConfigure(GPIO_PE4_U5RX);
+    GPIOPinConfigure(GPIO_PE5_U5TX);
+    GPIOPinTypeUART(GPIO_PORTE_BASE, GPIO_PIN_4 | GPIO_PIN_5);
+    // UART 7
+    GPIOPinConfigure(GPIO_PE0_U7RX);
+    GPIOPinConfigure(GPIO_PE1_U7TX);
+    GPIOPinTypeUART(GPIO_PORTE_BASE, GPIO_PIN_0 | GPIO_PIN_1);
+
+    // set UART baudrates to 115200
+    UARTConfigSetExpClk(UART0_BASE, SysCtlClockGet(), 115200, (UART_CONFIG_WLEN_8|UART_CONFIG_STOP_ONE|UART_CONFIG_PAR_NONE));
+    UARTConfigSetExpClk(UART5_BASE, SysCtlClockGet(), 115200, (UART_CONFIG_WLEN_8|UART_CONFIG_STOP_ONE|UART_CONFIG_PAR_NONE));
+    UARTConfigSetExpClk(UART7_BASE, SysCtlClockGet(), 115200, (UART_CONFIG_WLEN_8|UART_CONFIG_STOP_ONE|UART_CONFIG_PAR_NONE));
+
+    // enable UART7 RX interrupts
+    IntMasterEnable();
+    IntRegister(INT_UART7, uart7_handler);
+    IntEnable(INT_UART7);
+    UARTIntEnable(UART7_BASE, UART_INT_RX | UART_INT_RT);
+
+//    puts(0, "\r\n");
+//    puts(0, "UART 0 copy!\r\n");
+//    puts(5, "UART 5 copy!\r\n");
+
+    // this is sent to UART 7 via TX, not RX. So the interrupt does not work here.
+    // it is sent to UART 5 RX.
+    //puts(7, "UART 7 copy!\r\n");
+
+    //puts(0, "Type something: ");
+
+    // wait for interrupts to happen...
+
+    while (1){
+
+//        //  DEBUG: this prints whatever is seen on UART7 RX
+//        while( UARTCharsAvail(UART7_BASE) ){
+//            UARTCharPutNonBlocking(UART0_BASE, UARTCharGet(UART7_BASE)) ;
+//        }
+
+//        // DEBUG: sends whatever is sent to UART0 to UART 5, which is then sent to UART 7 via physical wiring.
+//        while( UARTCharsAvail(UART0_BASE) ){
+//            UARTCharPutNonBlocking(UART5_BASE, UARTCharGet(UART0_BASE)) ;
+//        }
+
+
+        ;
+    }
+}

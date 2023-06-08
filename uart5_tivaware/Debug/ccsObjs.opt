@@ -1,0 +1,5 @@
+"./main.obj"
+"./tm4c123ge6pz_startup_ccs.obj"
+"../tm4c123ge6pz.cmd"
+-llibc.a
+-ldriverlib.lib

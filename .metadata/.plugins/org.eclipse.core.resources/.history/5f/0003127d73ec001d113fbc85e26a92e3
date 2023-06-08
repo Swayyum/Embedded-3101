@@ -1,0 +1,104 @@
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include "inc/hw_memmap.h"
+#include "inc/hw_types.h"
+#include "driverlib/sysctl.h"
+#include "driverlib/gpio.h"
+#include "driverlib/pin_map.h"
+#include "driverlib/uart.h"
+
+
+#define RING_BUFFER_SIZE 4096
+
+// Ring buffer structure definition
+typedef struct {
+    uint8_t *buffer;      // Pointer to the buffer array
+    uint32_t size;        // Size of the buffer array
+    uint32_t read_index;  // Index for reading from the buffer
+    uint32_t write_index; // Index for writing to the buffer
+} RingBuffer;
+
+// Initialize the ring buffer
+void ring_buffer_init(RingBuffer *ring_buffer, uint8_t *buffer, uint32_t size) {
+    ring_buffer->buffer = buffer;
+    ring_buffer->size = size;
+    ring_buffer->read_index = 0;
+    ring_buffer->write_index = 0;
+}
+
+// Write data to the ring buffer
+bool ring_buffer_write(RingBuffer *ring_buffer, uint8_t data) {
+    uint32_t next_write_index = (ring_buffer->write_index + 1) % ring_buffer->size;
+
+    if (next_write_index == ring_buffer->read_index) {
+        return false; // Buffer is full
+    }
+
+    ring_buffer->buffer[ring_buffer->write_index] = data;
+    ring_buffer->write_index = next_write_index;
+    return true;
+}
+
+// Read data from the ring buffer
+bool ring_buffer_read(RingBuffer *ring_buffer, uint8_t *data) {
+    if (ring_buffer->read_index == ring_buffer->write_index) {
+        return false; // Buffer is empty
+    }
+
+    *data = ring_buffer->buffer[ring_buffer->read_index];
+    ring_buffer->read_index = (ring_buffer->read_index + 1) % ring_buffer->size;
+    return true;
+}
+
+// UART0 interrupt handler
+void UART0IntHandler(void) {
+    uint32_t status = UARTIntStatus(UART0_BASE, true);
+    UARTIntClear(UART0_BASE, status);
+
+    while (UARTCharsAvail(UART0_BASE)) {
+        uint8_t received_char = UARTCharGetNonBlocking(UART0_BASE);
+        // TODO: Handle received data, such as writing it to the ring buffer
+    }
+}
+
+// Main function
+int main(void) {
+    // Set the clock
+    SysCtlClockSet(SYSCTL_SYSDIV_5 | SYSCTL_USE_PLL | SYSCTL_OSC_MAIN | SYSCTL_XTAL_16MHZ);
+
+    // Enable peripherals for UART0 and GPIOA
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
+
+    // Configure the UART0 and GPIOA pins
+    GPIOPinConfigure(GPIO_PA0_U0RX);
+    GPIOPinConfigure(GPIO_PA1_U0TX);
+    GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0 | GPIO_PIN_1);
+
+    // Configure and enable UART0
+    UARTConfigSetExpClk(UART0_BASE, SysCtlClockGet(), 115200, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
+    UARTEnable(UART0_BASE);
+
+    // Enable UART0 interrupts
+    UARTIntEnable(UART0_BASE, UART_INT_RX | UART_INT_RT);
+    UARTIntRegister(UART0_BASE, UART0IntHandler);
+    IntEnable(INT_UART0);
+
+    // Initialize the ring buffer
+    uint8_t buffer_data[RING_BUFFER_SIZE];
+    RingBuffer ring_buffer;
+    ring_buffer_init(&ring_buffer, buffer_data, RING_BUFFER_SIZE);
+
+    // Main loop
+    while (1) {
+        uint8_t data;
+        if (ring_buffer_read(&ring_buffer, &data)) {
+            // If there is data in the buffer, send it via UART
+            UARTCharPut(UART0_BASE, data);
+        }
+        // Implement any additional functionality required for Lab L2A
+    }
+}
+
+
